@@ -20,6 +20,7 @@ module.exports = {
       when: "{{gpu === 'nvidia' && platform === 'linux' && exists('app')}}",
       method: "shell.run",
       params: {
+        bluefairy: "off",
         venv: "env",
         path: "app",
         build: true,
@@ -35,6 +36,7 @@ module.exports = {
       when: "{{gpu === 'nvidia' && platform === 'win32' && exists('app')}}",
       method: "shell.run",
       params: {
+        bluefairy: "off",
         venv: "env",
         path: "app",
         build: true,
