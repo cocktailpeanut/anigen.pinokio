@@ -14,6 +14,8 @@ TORCHAUDIO_VERSION = "2.4.0"
 XFORMERS_VERSION = "0.0.27.post2"
 CUB_SOURCE = "https://github.com/NVIDIA/cub/archive/refs/tags/1.10.0.tar.gz"
 PYTORCH3D_SOURCE = "https://github.com/facebookresearch/pytorch3d/archive/refs/tags/V0.7.8.tar.gz"
+PYTORCH3D_WHEEL_INDEX = "https://miropsota.github.io/torch_packages_builder/pytorch3d/"
+PYTORCH3D_WHEEL_VERSIONS = ("0.7.8", "0.7.7")
 NVDIFFRAST_SOURCE = "https://github.com/NVlabs/nvdiffrast/archive/refs/tags/v0.3.3.tar.gz"
 INSTALL_MARKER = ".pinokio-installed"
 DEMO_PACKAGES = [
@@ -234,6 +236,25 @@ def uv_pip_uninstall(packages, cwd=None, env=None, dry_run=False):
     subprocess.run(command, cwd=cwd, env=env, check=False)
 
 
+def install_public_pytorch3d_wheel(repo_root: Path, cuda, env=None, dry_run=False) -> bool:
+    uv_pip_uninstall(["pytorch3d"], cwd=repo_root, env=env, dry_run=dry_run)
+    for version in PYTORCH3D_WHEEL_VERSIONS:
+        package = f"pytorch3d=={version}+pt{TORCH_VERSION}{cuda['pytorch3d_compute']}"
+        print(f"Trying public PyTorch3D wheel {package}")
+        try:
+            uv_pip(
+                ["--no-index", "--no-deps", "--find-links", PYTORCH3D_WHEEL_INDEX, package],
+                cwd=repo_root,
+                env=env,
+                dry_run=dry_run,
+            )
+        except subprocess.CalledProcessError:
+            print(f"Public PyTorch3D wheel unavailable for {package}.")
+        else:
+            return True
+    return False
+
+
 def detect_cuda():
     nvcc = shutil.which("nvcc")
     if not nvcc:
@@ -248,12 +269,14 @@ def detect_cuda():
         return {
             "version": f"{major}.{minor}",
             "torch_index": "https://download.pytorch.org/whl/cu121",
+            "pytorch3d_compute": "cu121",
             "spconv_package": "spconv-cu121",
         }
     if major == 11:
         return {
             "version": f"{major}.{minor}",
             "torch_index": "https://download.pytorch.org/whl/cu118",
+            "pytorch3d_compute": "cu118",
             "spconv_package": "spconv-cu118",
         }
     raise SystemExit(f"CUDA {major}.{minor} is too old for AniGen's dependency stack.")
@@ -387,23 +410,27 @@ def main():
     uv_pip_uninstall(SPCONV_PACKAGES, cwd=repo_root, env=base_env, dry_run=dry_run)
     uv_pip([cuda["spconv_package"]], cwd=repo_root, env=base_env, dry_run=dry_run)
 
-    cub_source = resolve_cub_home(dry_run=dry_run)
+    pytorch3d_from_wheel = install_public_pytorch3d_wheel(repo_root, cuda, env=base_env, dry_run=dry_run)
+    msvc_env = capture_msvc_env(base_env)
+    if not pytorch3d_from_wheel:
+        cub_source = resolve_cub_home(dry_run=dry_run)
+        if dry_run:
+            pytorch3d_source = source_cache_root() / "p3d"
+        else:
+            pytorch3d_source = prepare_source("p3d", PYTORCH3D_SOURCE)
+            patch_pytorch3d_for_windows(pytorch3d_source)
+        msvc_env["CUB_HOME"] = str(cub_source)
+        msvc_env["PYTORCH3D_DISABLE_PULSAR"] = "1"
+        uv_pip(
+            ["--no-build-isolation", str(pytorch3d_source)],
+            cwd=repo_root,
+            env=msvc_env,
+            dry_run=dry_run,
+        )
     if dry_run:
-        pytorch3d_source = source_cache_root() / "p3d"
         nvdiffrast_source = source_cache_root() / "nvd"
     else:
-        pytorch3d_source = prepare_source("p3d", PYTORCH3D_SOURCE)
-        patch_pytorch3d_for_windows(pytorch3d_source)
         nvdiffrast_source = prepare_source("nvd", NVDIFFRAST_SOURCE)
-    base_env["CUB_HOME"] = str(cub_source)
-    base_env["PYTORCH3D_DISABLE_PULSAR"] = "1"
-    msvc_env = capture_msvc_env(base_env)
-    uv_pip(
-        ["--no-build-isolation", str(pytorch3d_source)],
-        cwd=repo_root,
-        env=msvc_env,
-        dry_run=dry_run,
-    )
     uv_pip(
         ["--no-build-isolation", str(nvdiffrast_source)],
         cwd=repo_root,
