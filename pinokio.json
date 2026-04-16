@@ -1,0 +1,19 @@
+{
+  "title": "AniGen",
+  "description": "[NVIDIA GPU required] Unified S^3 fields for animatable 3D asset generation from a single image. Includes a native Windows launcher path.",
+  "icon": "icon.gif",
+  "links": [
+    {
+      "title": "GitHub",
+      "value": "https://github.com/VAST-AI-Research/AniGen"
+    },
+    {
+      "title": "Project Page",
+      "value": "https://yihua7.github.io/AniGen_web/"
+    },
+    {
+      "title": "Models",
+      "value": "https://huggingface.co/VAST-AI/AniGen"
+    }
+  ]
+}

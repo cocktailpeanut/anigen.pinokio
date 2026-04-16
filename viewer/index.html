@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AniGen Rig Viewer</title>
+    <link rel="icon" href="./favicon.ico" sizes="any">
+    <link rel="stylesheet" href="./styles.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./node_modules/three/build/three.module.js",
+          "three/addons/": "./node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="viewer-shell" id="dropzone">
+      <div id="viewport" class="viewport"></div>
+
+      <aside class="toolbox">
+        <label class="tool-button file-button">
+          <input id="file-input" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json">
+          <span>Load GLB</span>
+        </label>
+        <button id="fit-camera" type="button">Fit</button>
+        <button id="reset-pose" type="button" disabled>Reset Pose</button>
+        <button id="reset-joint" type="button" disabled>Reset Joint</button>
+        <button id="export-glb" type="button" disabled>Export</button>
+        <button id="mode-rotate" type="button" class="is-active" disabled>Rotate</button>
+        <button id="mode-translate" type="button" disabled>Move Root</button>
+        <button id="toggle-grid" type="button">Hide Grid</button>
+        <button id="toggle-skeleton" type="button" disabled>Hide Bones</button>
+        <button id="toggle-markers" type="button" disabled>Hide Markers</button>
+        <p class="status" id="status">Drop AniGen's <code>mesh.glb</code> anywhere or use Load GLB.</p>
+      </aside>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

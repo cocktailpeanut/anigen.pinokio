@@ -1,0 +1,9 @@
+{
+  "name": "anigen-rig-viewer",
+  "private": true,
+  "type": "module",
+  "description": "Standalone local rig viewer for AniGen mesh GLB exports",
+  "dependencies": {
+    "three": "0.183.2"
+  }
+}
