@@ -1,6 +1,6 @@
 {
   "title": "AniGen",
-  "description": "[NVIDIA GPU required] Unified S^3 fields for animatable 3D asset generation from a single image. Includes a native Windows launcher path.",
+  "description": "[NVIDIA GPU required] Unified S^3 fields for animatable 3D asset generation from a single image. 6GB VRAM needed (Low VRAM option)",
   "icon": "icon.gif",
   "links": [
     {

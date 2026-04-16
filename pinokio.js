@@ -91,13 +91,13 @@ module.exports = {
       return runningItems
     } else if (installed) {
       return [{
-        icon: "fa-solid fa-power-off",
-        text: "Start",
-        href: "start.js"
-      }, {
         icon: "fa-solid fa-memory",
         text: "Start (Low VRAM)",
         href: "start_lowvram.js"
+      }, {
+        icon: "fa-solid fa-power-off",
+        text: "Start (High VRAM)",
+        href: "start.js"
       }, {
         icon: "fa-solid fa-bone",
         text: "Start Viewer",
