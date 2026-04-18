@@ -78,6 +78,8 @@ The viewer currently supports:
 - PyTorch is pinned to the upstream-supported 2.4.x stack for compatibility with PyTorch3D.
 - The launcher uses the matching `xformers` wheel for the Torch 2.4 stack and skips PyTorch3D's unused `pulsar` build on Windows because that component fails on the bundled CUDA 12.8 toolchain.
 - `spconv` is installed from the Windows wheel matching the detected CUDA family.
+- On Windows RTX 50-series / Blackwell GPUs, the installer switches to a dedicated `cu128` Torch stack and the launcher forces dense attention to `sdpa` while leaving sparse attention on `xformers`, which matches AniGen's current sparse-module requirements.
+- If auto-detection misses a Blackwell GPU, set `ANIGEN_FORCE_BLACKWELL=1` before running `install.js` or `start.js` to force the Blackwell path.
 
 ## Programmatic Access
 

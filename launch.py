@@ -3,11 +3,21 @@ import shutil
 import sys
 from pathlib import Path
 
+from launcher_gpu import apply_attention_profile
+
 
 # Keep the upstream repo untouched while forcing the demo to bind to localhost.
 repo_root = os.getcwd()
 if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
+
+profile = apply_attention_profile()
+if profile["blackwell"]:
+    names = ", ".join(profile["gpu_names"]) if profile["gpu_names"] else "unknown NVIDIA GPU"
+    print(
+        "[LAUNCHER] Blackwell profile enabled for "
+        f"{names}: dense attention={profile['dense_backend']}, sparse attention={profile['sparse_backend']}."
+    )
 
 import app as anigen_app
 

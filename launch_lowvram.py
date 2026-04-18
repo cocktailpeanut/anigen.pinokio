@@ -11,11 +11,20 @@ import numpy as np
 import torch
 from PIL import Image
 from gradio_litmodel3d import LitModel3D
+from launcher_gpu import apply_attention_profile
 
 
 repo_root = os.getcwd()
 if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
+
+profile = apply_attention_profile()
+if profile["blackwell"]:
+    names = ", ".join(profile["gpu_names"]) if profile["gpu_names"] else "unknown NVIDIA GPU"
+    print(
+        "[LAUNCHER] Blackwell profile enabled for "
+        f"{names}: dense attention={profile['dense_backend']}, sparse attention={profile['sparse_backend']}."
+    )
 
 from anigen.pipelines.anigen_image_to_3d import AnigenImageTo3DPipeline
 from anigen.utils.ckpt_utils import ensure_ckpts

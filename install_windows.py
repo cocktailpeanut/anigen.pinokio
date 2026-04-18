@@ -7,15 +7,11 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
+from launcher_gpu import has_blackwell_gpu, nvidia_gpu_names
 
-TORCH_VERSION = "2.4.0"
-TORCHVISION_VERSION = "0.19.0"
-TORCHAUDIO_VERSION = "2.4.0"
-XFORMERS_VERSION = "0.0.27.post2"
 CUB_SOURCE = "https://github.com/NVIDIA/cub/archive/refs/tags/1.10.0.tar.gz"
 PYTORCH3D_SOURCE = "https://github.com/facebookresearch/pytorch3d/archive/refs/tags/V0.7.8.tar.gz"
 PYTORCH3D_WHEEL_INDEX = "https://miropsota.github.io/torch_packages_builder/pytorch3d/"
-PYTORCH3D_WHEEL_VERSIONS = ("0.7.8", "0.7.7")
 NVDIFFRAST_SOURCE = "https://github.com/NVlabs/nvdiffrast/archive/refs/tags/v0.3.3.tar.gz"
 INSTALL_MARKER = ".pinokio-installed"
 DEMO_PACKAGES = [
@@ -33,11 +29,39 @@ SPCONV_PACKAGES = [
     "spconv-cu118",
     "spconv-cu120",
     "spconv-cu121",
+    "spconv-cu124",
+    "spconv-cu126",
+    "spconv-cu128",
     "cumm",
     "cumm-cu118",
     "cumm-cu120",
     "cumm-cu121",
+    "cumm-cu124",
+    "cumm-cu126",
+    "cumm-cu128",
 ]
+
+LEGACY_TORCH_STACK = {
+    "torch_version": "2.4.0",
+    "torchvision_version": "0.19.0",
+    "torchaudio_version": "2.4.0",
+    "xformers_version": "0.0.27.post2",
+    "pytorch3d_wheels": ("0.7.8+pt2.4.0", "0.7.7+pt2.4.0"),
+}
+
+BLACKWELL_TORCH_STACK = {
+    # Match the current Pinokio cu128 convention for NVIDIA Windows installs.
+    "torch_version": "2.7.0",
+    "torchvision_version": "0.22.0",
+    "torchaudio_version": "2.7.0",
+    "xformers_version": "0.0.30",
+    "pytorch3d_wheels": (
+        "0.7.9+pt2.7.0",
+        "0.7.8+pt2.7.0",
+        "0.7.8+pt2.4.0",
+        "0.7.7+pt2.4.0",
+    ),
+}
 
 
 def launcher_root() -> Path:
@@ -238,8 +262,8 @@ def uv_pip_uninstall(packages, cwd=None, env=None, dry_run=False):
 
 def install_public_pytorch3d_wheel(repo_root: Path, cuda, env=None, dry_run=False) -> bool:
     uv_pip_uninstall(["pytorch3d"], cwd=repo_root, env=env, dry_run=dry_run)
-    for version in PYTORCH3D_WHEEL_VERSIONS:
-        package = f"pytorch3d=={version}+pt{TORCH_VERSION}{cuda['pytorch3d_compute']}"
+    for version in cuda["pytorch3d_wheels"]:
+        package = f"pytorch3d=={version}{cuda['pytorch3d_compute']}"
         print(f"Trying public PyTorch3D wheel {package}")
         try:
             uv_pip(
@@ -265,19 +289,37 @@ def detect_cuda():
         raise SystemExit("Could not detect the CUDA version from `nvcc --version`.")
     major = int(match.group(1))
     minor = int(match.group(2))
+    blackwell = has_blackwell_gpu()
     if major >= 12:
+        if blackwell:
+            return {
+                "version": f"{major}.{minor}",
+                "profile": "blackwell",
+                "blackwell": True,
+                "torch_index": "https://download.pytorch.org/whl/cu128",
+                "pytorch3d_compute": "cu128",
+                # spconv's cu121 wheel still works with the cu128 runtime via CUDA minor compat.
+                "spconv_package": "spconv-cu121",
+                **BLACKWELL_TORCH_STACK,
+            }
         return {
             "version": f"{major}.{minor}",
+            "profile": "legacy",
+            "blackwell": False,
             "torch_index": "https://download.pytorch.org/whl/cu121",
             "pytorch3d_compute": "cu121",
             "spconv_package": "spconv-cu121",
+            **LEGACY_TORCH_STACK,
         }
     if major == 11:
         return {
             "version": f"{major}.{minor}",
+            "profile": "legacy",
+            "blackwell": False,
             "torch_index": "https://download.pytorch.org/whl/cu118",
             "pytorch3d_compute": "cu118",
             "spconv_package": "spconv-cu118",
+            **LEGACY_TORCH_STACK,
         }
     raise SystemExit(f"CUDA {major}.{minor} is too old for AniGen's dependency stack.")
 
@@ -379,6 +421,10 @@ def main():
             return
 
     cuda = detect_cuda()
+    gpu_names = nvidia_gpu_names()
+    if gpu_names:
+        print("Detected NVIDIA GPU(s):", ", ".join(gpu_names))
+    print(f"Using install profile: {cuda['profile']}")
     print(f"Detected CUDA toolkit {cuda['version']}")
     print(f"Using PyTorch index {cuda['torch_index']}")
     print(f"Using {cuda['spconv_package']} for spconv")
@@ -393,9 +439,9 @@ def main():
     )
     uv_pip(
         [
-            f"torch=={TORCH_VERSION}",
-            f"torchvision=={TORCHVISION_VERSION}",
-            f"torchaudio=={TORCHAUDIO_VERSION}",
+            f"torch=={cuda['torch_version']}",
+            f"torchvision=={cuda['torchvision_version']}",
+            f"torchaudio=={cuda['torchaudio_version']}",
             "--index-url",
             cuda["torch_index"],
         ],
@@ -403,7 +449,7 @@ def main():
         env=base_env,
         dry_run=dry_run,
     )
-    uv_pip([f"xformers=={XFORMERS_VERSION}"], cwd=repo_root, env=base_env, dry_run=dry_run)
+    uv_pip([f"xformers=={cuda['xformers_version']}"], cwd=repo_root, env=base_env, dry_run=dry_run)
     uv_pip(["-r", "requirements.txt"], cwd=repo_root, env=base_env, dry_run=dry_run)
     uv_pip(DEMO_PACKAGES, cwd=repo_root, env=base_env, dry_run=dry_run)
 
