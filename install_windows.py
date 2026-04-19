@@ -508,7 +508,84 @@ def verify_install(repo_root: Path, dry_run=False):
             "print('gradio', gradio.__version__)",
         ]
     )
-    run([sys.executable, "-c", code], cwd=repo_root, dry_run=dry_run)
+    command = [sys.executable, "-c", code]
+    print("+", " ".join(command))
+    if dry_run:
+        return
+
+    completed = subprocess.run(
+        command,
+        cwd=repo_root,
+        text=True,
+        errors="ignore",
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        if completed.stdout:
+            print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+        if completed.stderr:
+            print(completed.stderr, end="" if completed.stderr.endswith("\n") else "\n", file=sys.stderr)
+        raise subprocess.CalledProcessError(
+            completed.returncode,
+            command,
+            output=completed.stdout,
+            stderr=completed.stderr,
+        )
+
+    if completed.stdout:
+        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+
+
+def summarize_probe_failure(stdout: str, stderr: str) -> str:
+    lines = []
+    if stdout:
+        lines.extend(stdout.splitlines())
+    if stderr:
+        lines.extend(stderr.splitlines())
+
+    for line in reversed(lines):
+        text = line.strip()
+        if not text:
+            continue
+        match = re.search(r"No module named '([^']+)'", text)
+        if match:
+            return f"missing module: {match.group(1)}"
+        return text
+    return ""
+
+
+def probe_install(repo_root: Path):
+    code = "\n".join(
+        [
+            "import gradio",
+            "import nvdiffrast.torch",
+            "import pytorch3d.ops",
+            "import rtree",
+            "import spconv.pytorch",
+            "import torch",
+            "import xformers.ops",
+            "print('torch', torch.__version__)",
+            "print('cuda', torch.version.cuda)",
+            "print('gradio', gradio.__version__)",
+        ]
+    )
+    command = [sys.executable, "-c", code]
+    print("+", " ".join(command))
+    completed = subprocess.run(
+        command,
+        cwd=repo_root,
+        text=True,
+        errors="ignore",
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return False, summarize_probe_failure(completed.stdout, completed.stderr)
+
+    if completed.stdout:
+        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+    return True, ""
 
 
 def main():
@@ -518,14 +595,18 @@ def main():
     print(f"Using Python {sys.version.split()[0]}")
 
     if not dry_run:
-        try:
-            verify_install(repo_root)
-        except subprocess.CalledProcessError:
-            print("Existing AniGen install is incomplete or broken. Reinstalling dependencies.")
+        if install_marker_path(repo_root).exists():
+            verified, detail = probe_install(repo_root)
+            if verified:
+                print("AniGen dependencies are already verified. Skipping reinstall.")
+                write_install_marker(repo_root)
+                return
+            if detail:
+                print(f"Existing AniGen install is incomplete or broken ({detail}). Reinstalling dependencies.")
+            else:
+                print("Existing AniGen install is incomplete or broken. Reinstalling dependencies.")
         else:
-            print("AniGen dependencies are already verified. Skipping reinstall.")
-            write_install_marker(repo_root)
-            return
+            print("No verified AniGen install marker found. Installing dependencies.")
 
     cuda = detect_cuda()
     gpu_names = nvidia_gpu_names()
