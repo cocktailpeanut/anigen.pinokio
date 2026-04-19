@@ -324,45 +324,8 @@ def detect_cuda():
     raise SystemExit(f"CUDA {major}.{minor} is too old for AniGen's dependency stack.")
 
 
-def capture_msvc_env(base_env):
-    vswhere = shutil.which("vswhere")
-    if not vswhere:
-        fallback = Path(r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe")
-        if fallback.exists():
-            vswhere = str(fallback)
-    if not vswhere:
-        raise SystemExit("vswhere.exe was not found. Install Visual Studio Build Tools 2019 or newer.")
-
-    vcvars = subprocess.check_output(
-        [
-            vswhere,
-            "-latest",
-            "-products",
-            "*",
-            "-requires",
-            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-            "-find",
-            r"VC\Auxiliary\Build\vcvars64.bat",
-        ],
-        text=True,
-        errors="ignore",
-    ).strip()
-    if not vcvars:
-        raise SystemExit("Could not find vcvars64.bat. Install the C++ build tools for Visual Studio 2019 or newer.")
-
-    dump = subprocess.check_output(
-        f'call "{vcvars}" >nul && set',
-        text=True,
-        errors="ignore",
-        shell=True,
-        env=base_env,
-    )
+def finalize_msvc_env(base_env):
     env = base_env.copy()
-    for line in dump.splitlines():
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        env[key] = value
     env["DISTUTILS_USE_SDK"] = "1"
     env["MSSdk"] = "1"
     env["USE_NINJA"] = "0"
@@ -370,7 +333,7 @@ def capture_msvc_env(base_env):
     env["MAX_JOBS"] = "1"
     cuda_home = env.get("CUDA_HOME") or env.get("CUDA_PATH")
     if not cuda_home:
-        nvcc = shutil.which("nvcc")
+        nvcc = shutil.which("nvcc", path=env.get("PATH"))
         if nvcc:
             cuda_home = str(Path(nvcc).resolve().parent.parent)
     if cuda_home:
@@ -383,7 +346,151 @@ def capture_msvc_env(base_env):
             if existing:
                 parts.append(existing)
             env["LIB"] = ";".join(parts)
+    if shutil.which("cl.exe", path=env.get("PATH")):
+        env.setdefault("CC", "cl.exe")
+        env.setdefault("CXX", "cl.exe")
     return env
+
+
+def has_msvc_toolchain(env):
+    return bool(
+        shutil.which("cl.exe", path=env.get("PATH"))
+        and (
+            env.get("VCToolsInstallDir")
+            or env.get("VCINSTALLDIR")
+            or env.get("VSINSTALLDIR")
+        )
+    )
+
+
+def resolve_vswhere():
+    vswhere = shutil.which("vswhere")
+    if not vswhere:
+        fallback = Path(r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe")
+        if fallback.exists():
+            vswhere = str(fallback)
+    return vswhere
+
+
+def append_msvc_candidate(candidates, seen, script_path: Path, args=""):
+    candidate = Path(script_path)
+    if not candidate.exists():
+        return
+    key = (str(candidate).lower(), args)
+    if key in seen:
+        return
+    seen.add(key)
+    candidates.append((candidate, args))
+
+
+def iter_msvc_activation_candidates(base_env):
+    candidates = []
+    seen = set()
+
+    vsinstall = base_env.get("VSINSTALLDIR")
+    if vsinstall:
+        root = Path(vsinstall.rstrip("\\/"))
+        append_msvc_candidate(candidates, seen, root / "VC" / "Auxiliary" / "Build" / "vcvars64.bat")
+        append_msvc_candidate(
+            candidates,
+            seen,
+            root / "Common7" / "Tools" / "VsDevCmd.bat",
+            "-arch=x64 -host_arch=x64",
+        )
+
+    vswhere = resolve_vswhere()
+    if not vswhere:
+        return candidates
+
+    queries = [
+        (r"VC\Auxiliary\Build\vcvars64.bat", ""),
+        (r"Common7\Tools\VsDevCmd.bat", "-arch=x64 -host_arch=x64"),
+    ]
+    for pattern, args in queries:
+        output = subprocess.check_output(
+            [
+                vswhere,
+                "-products",
+                "*",
+                "-requires",
+                "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                "-find",
+                pattern,
+            ],
+            text=True,
+            errors="ignore",
+        )
+        for line in output.splitlines():
+            line = line.strip()
+            if line:
+                append_msvc_candidate(candidates, seen, Path(line), args)
+    return candidates
+
+
+def capture_batch_env(batch_file: Path, args: str, base_env):
+    command = f'call "{batch_file}"'
+    if args:
+        command = f"{command} {args}"
+    command = f"{command} >nul && set"
+    completed = subprocess.run(
+        command,
+        text=True,
+        errors="ignore",
+        capture_output=True,
+        env=base_env,
+        check=False,
+        shell=True,
+        executable=os.environ.get("COMSPEC", "cmd.exe"),
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        if detail:
+            detail = "\n".join(detail.splitlines()[-8:])
+        raise RuntimeError(detail or f"exit status {completed.returncode}")
+
+    env = base_env.copy()
+    for line in completed.stdout.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        env[key] = value
+    return finalize_msvc_env(env)
+
+
+def capture_msvc_env(base_env):
+    current_env = finalize_msvc_env(base_env)
+    if has_msvc_toolchain(current_env):
+        print("Using existing MSVC environment from the Pinokio shell.")
+        return current_env
+
+    candidates = iter_msvc_activation_candidates(base_env)
+    if not candidates:
+        raise SystemExit(
+            "Could not find a usable Visual Studio C++ environment. "
+            "Install Visual Studio Build Tools 2019 or newer with the Desktop development with C++ workload."
+        )
+
+    errors = []
+    for batch_file, args in candidates:
+        try:
+            env = capture_batch_env(batch_file, args, base_env)
+        except RuntimeError as exc:
+            errors.append(f"{batch_file}: {exc}")
+            continue
+        if has_msvc_toolchain(env):
+            print(f"Activated MSVC toolchain via {batch_file.name}.")
+            return env
+        errors.append(f"{batch_file}: activated, but cl.exe was still unavailable.")
+
+    detail = "\n".join(f"- {line}" for line in errors[-4:])
+    message = (
+        "Could not initialize the Visual Studio C++ build environment. "
+        "Install Visual Studio Build Tools 2019 or newer with the Desktop development with C++ workload "
+        "and a Windows SDK."
+    )
+    if detail:
+        message = f"{message}\n{detail}"
+    raise SystemExit(message)
 
 
 def verify_install(repo_root: Path, dry_run=False):
